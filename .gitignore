@@ -1,0 +1,6 @@
+printf
+*.o
+*.lst
+itoa_test
+main
+sketches.cpp
