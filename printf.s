@@ -23,7 +23,12 @@ extern atexit
 %endmacro
 
 atexit_printf_buffer_flush:
-            printf_buffer_flush
+
+            mov rax, 0x01                               ; write64 (rdi, rsi, rdx) ... r10, r8, r9
+            mov rdi, 1                                  ; stdout
+            lea rsi, [rel printf_buffer]
+            movzx rdx, byte [rel printf_buffer_charge]
+            syscall
 
             ret
 
@@ -163,7 +168,9 @@ my_printf:  ; in this function the following registered used for
 .bin_spec:  pop rax
             push rcx
             push rdi
+            push rdx
             call itoa_bin
+            pop rdx
             pop rdi
 
             lea rbx, [rel temp_buffer]
@@ -179,7 +186,9 @@ my_printf:  ; in this function the following registered used for
 .oct_spec:  pop rax
             push rcx
             push rdi
+            push rdx
             call itoa_oct
+            pop rdx
             pop rdi
 
             lea rbx, [rel temp_buffer]
@@ -193,7 +202,9 @@ my_printf:  ; in this function the following registered used for
 .hex_spec:  pop rax
             push rcx
             push rdi
+            push rdx
             call itoa_hex
+            pop rdx
             pop rdi
 
             lea rbx, [rel temp_buffer]
@@ -208,6 +219,17 @@ my_printf:  ; in this function the following registered used for
 
 .printf_end:
 
+            lea rsi, [rel printf_result]
+            mov rax, [rsi]
+            add rax, rdx                                ; printf return value
+
+            lea rsi, [rel printf_buffer_charge]
+            mov [rsi], dl                               ; save number of bytes in buffer for atexit or further calls
+
+            pop rdx
+            pop rcx
+            pop r8
+            pop r9
             ret
 
 ;========================================================================================================
@@ -232,7 +254,15 @@ add_to_buffer:
             ;
 
 .buffer_flush:
-            printf_buffer_flush
+            push rdi
+
+            mov rax, 0x01                               ; write64 (rdi, rsi, rdx) ... r10, r8, r9
+            mov rdi, 1                                  ; stdout
+            syscall
+
+            xor rdx, rdx
+            pop rdi
+
             jmp add_to_buffer
 
 .add:       mov al, [rbx]
@@ -262,15 +292,16 @@ strlen:     push rdi
             inc rcx
             jmp .loop
 
-.loop_end
+.loop_end:
             pop rdi
             ret
 
 section     .data
 
 printf_result:  dq 0
+printf_buffer_charge:   db 0
 printf_buffer:  dq 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-buffer_size     equ  $ - printf_buffer
+buffer_size     equ 255
 temp_buffer:    dq 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 section     .rodata
