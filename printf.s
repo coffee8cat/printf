@@ -92,6 +92,10 @@ itoa_hex:   itoa 4, 0xF0000000
 ;========================================================================================================
 ;========================================================================================================
 my_printf_FASTCALL:
+            push rdi
+            call count_printf_specificators
+            pop rdi
+
             push r9
             push r8
             push rcx
@@ -100,6 +104,38 @@ my_printf_FASTCALL:
             push rdi
 
             jmp my_printf
+
+;========================================================================================================
+; Entry:    rdi - format string for printf
+; Exit:     rax - numbet of specificators in format string
+; Dstr:
+;========================================================================================================
+count_printf_specificators:
+            xor rax, rax
+            mov bh, '%'
+
+.while:     mov bl, [rdi]
+            cmp bl, ah                                  ; if ([rdi] == 0 <=> EOS met) { break }
+            je .while_end
+
+            cmp bl, bh                                  ; if ([rdi] == '%') { check_spec }
+            je .check_spec
+
+            inc rdi
+            jmp .while
+
+.check_spec:
+            inc rdi
+            ; Here I make use of fact that '%' is less than any of my specificators ASCII
+            ; if ([rdi] > '%') { al++ }
+            cmp bh, [rdi]                               ; check %%, CF = 1 if (bh < [rdi]), 0 otherwise
+            adc al, ah                                  ; al = al + ah + CF, ah set as 0 after xor
+            inc rdi
+            jmp .while
+
+.while_end:
+
+            ret
 
 ;========================================================================================================
 ; Entry:
