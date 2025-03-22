@@ -42,51 +42,59 @@ atexit_printf_buffer_flush:
             lea rsi, [rel temp_buffer]
             lea rdi, [rel digits_string]
             mov rcx, %2
-            shl rcx, 36 - %1
+            mov rdx, rcx
+            shl rdx, 31
 
-.while:     mov rbx, rax
+.while:     inc dh
+            cmp rdx, rcx
+            jb  .while_end
+
+            mov rbx, rax
             and rbx, rcx
-            cmp rbx, 0
-            jne .while_end
+            test rbx, rbx
+            jz .skip
 
-            shl rax, %1
+            mov dl, dh
+.skip:
+            shl rcx, %1
 
             jmp .while
 
 .while_end:
-            mov ch, buffer_size
+            movzx rdx, dl
+            mov rcx, rdx
+            push rcx
+            mov rcx, %2
+            dec rdx
+            add rsi, rdx
+            lea rdx, [rel temp_buffer]
+            dec rdx
 
-.loop:      cmp ch, cl
-            je .loop_end
-
-            cmp rax, 0
+.loop:      cmp rdx, rsi
             je .loop_end
 
             mov rbx, rax
             and rbx, rcx
-            shr rbx, 64 - %1
 
-            mov dl, [rdi, rbx]
-            mov [rsi], byte dl
-            inc rsi
+            mov bl, [rdi, rbx]
+            mov [rsi], byte bl
 
-            shl rax, %1
-            inc cl
-
+            dec rsi
+            shr rax, %1
             jmp .loop
 
-.loop_end:  movzx rcx, cl
+.loop_end:  pop rcx
 
 %endmacro
 
 
-itoa_bin:   itoa 1, 0x10000000
+itoa_bin:   itoa 1, 1
             ret
 
-itoa_oct:   itoa 3, 0x70000000
+itoa_oct:   itoa 3, 7
             ret
 
-itoa_hex:   itoa 4, 0xF0000000
+itoa_hex:   itoa 4, 15
             ret
 
 ;========================================================================================================
@@ -96,12 +104,26 @@ my_printf_FASTCALL:
             call count_printf_specificators
             pop rdi
 
-            push r9
-            push r8
-            push rcx
-            push rdx
-            push rsi
-            push rdi
+            ; rax = al for this moment
+            mov bl, 5
+            cmp al, bl
+            ja .6args
+
+            sub al, bl
+            neg al                                     ; rax = 5 - rax
+
+            lea rbx, [rel printf_args_jt]          ; load switch option
+            mov eax, [rbx + rax * 4]
+            lea rbx, [rel my_printf_FASTCALL]
+            lea rax, [rbx + rax]
+            jmp rax
+
+.6args:     push r9
+.5args:     push r8
+.4args:     push rcx
+.3args:     push rdx
+.2args:     push rsi
+.1args:     push rdi
 
             jmp my_printf
 
@@ -198,6 +220,7 @@ my_printf:  ; in this function the following registered used for
 .perc_spec: mov al, '%'
             mov [rsi], al
             inc rsi
+            inc rdi
             inc rdx
             jmp .while
 
@@ -262,10 +285,6 @@ my_printf:  ; in this function the following registered used for
             lea rsi, [rel printf_buffer_charge]
             mov [rsi], dl                               ; save number of bytes in buffer for atexit or further calls
 
-            pop rdx
-            pop rcx
-            pop r8
-            pop r9
             ret
 
 ;========================================================================================================
@@ -279,6 +298,7 @@ my_printf:  ; in this function the following registered used for
 add_to_buffer:
 
             lea rsi, [rel printf_buffer]
+            lea rsi, [rsi + rdx]
             mov rax, rcx
             add rax, rdx                                ; + длина добавлемой строки
             cmp rax, buffer_size                        ; 0FD - длина буфера
@@ -343,6 +363,14 @@ temp_buffer:    dq 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 section     .rodata
 
 digits_string:  db '0123456789ABCDEF'
+
+printf_args_jt:
+    dd my_printf_FASTCALL.6args - my_printf_FASTCALL
+    dd my_printf_FASTCALL.5args - my_printf_FASTCALL
+    dd my_printf_FASTCALL.4args - my_printf_FASTCALL
+    dd my_printf_FASTCALL.3args - my_printf_FASTCALL
+    dd my_printf_FASTCALL.2args - my_printf_FASTCALL
+    dd my_printf_FASTCALL.1args - my_printf_FASTCALL
 
 spec_jt:
     dd my_printf.bin_spec - my_printf
