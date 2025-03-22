@@ -168,6 +168,7 @@ my_printf:  ; in this function the following registered used for
             ; rdi - adress of format string
             ; rsi - pointer to first free byte in buffer
             ; rdx - counter of bytes written in buffer
+            ; rcx - end of format string - for end condition of while
 
             mov rdi, atexit_printf_buffer_flush  ; Pass exit function pointer to atexit
             call atexit
@@ -179,38 +180,41 @@ my_printf:  ; in this function the following registered used for
             lea rsi, [rel printf_buffer]
             xor rdx, rdx
 .while:
-            cmp rcx, rdi
+            ; maybe rax = [rdi] ???
+
+
+            cmp rcx, rdi                    ; eos met => break
             je .printf_end
 
-            cmp rdx, buffer_size
+            cmp rdx, buffer_size            ; check buffer overflow
             je  .buffer_flush
 
-            cmp byte [rdi], '%'
+            movzx rax, byte [rdi]           ; read character from format string
+            cmp al, '%'                     ; check for specifications
             je  .specification_switch
 
-            mov al, [rdi]                   ; just a character => put to printf buffer
-            mov [rsi], al                   ; while ([rdi] != '%')[rsi++] = [rdi++]; rdx++;
+            ; if ([rdi] != '%') { [rsi++] = [rdi++]; rdx++; }
+            mov [rsi], al                   ; not a special character => put to printf buffer
             inc rdi
             inc rsi
             inc rdx
             jmp .while
 
 .buffer_flush:
-            printf_buffer_flush
+            printf_buffer_flush             ; print buffer to consol
             jmp .while
 
 .specification_switch:
 
-            inc rdi
-            cmp byte [rdi], '%'
+            inc rdi                         ; check character after '%'
+            movzx rax, byte [rdi]           ; read character from format string
+            cmp rax, '%'
             je  .perc_spec                  ; in this case '%' will be added to buff
 
-            movzx rax, byte [rdi]           ; check if byte in range of switch cases
             sub rax, 'b'
             cmp rax, 'x' - 'b'
             ja  .default
 
-            inc rdi
             lea rbx, [rel spec_jt]          ; load switch option
             mov eax, [rbx + rax * 4]
             lea rbx, [rel my_printf]
@@ -220,11 +224,11 @@ my_printf:  ; in this function the following registered used for
 .perc_spec: mov al, '%'
             mov [rsi], al
             inc rsi
-            inc rdi
             inc rdx
-            jmp .while
+            jmp .switch_end
 
-.bin_spec:  pop rax
+.bin_spec:  pop rax                         ; getarg for itoa
+
             push rcx
             push rdi
             push rdx
@@ -237,13 +241,17 @@ my_printf:  ; in this function the following registered used for
             pop rcx
             jmp .switch_end
 
-.chr_spec:
+.chr_spec:  pop rax                         ; getarg
+            mov [rsi], al
+            inc rsi
+            inc rdx
             jmp .switch_end
 .dec_spec:
             jmp .switch_end
 
-.oct_spec:  pop rax
+.oct_spec:  pop rax                         ; getarg for itoa
             push rcx
+
             push rdi
             push rdx
             call itoa_oct
@@ -255,11 +263,21 @@ my_printf:  ; in this function the following registered used for
             pop rcx
             jmp .switch_end
 
-.str_spec:  pop rbx
+.str_spec:  pop rbx                         ; getarg - pointer to a string
+            push rcx
+            push rdi
+
+            lea rdi, [rbx]
+            call strlen                     ; rcx = strlen(rbx)
+
+            pop rdi
+            call add_to_buffer
+            pop rcx
             jmp .switch_end
 
-.hex_spec:  pop rax
+.hex_spec:  pop rax                         ; getarg for itoa
             push rcx
+
             push rdi
             push rdx
             call itoa_hex
@@ -274,6 +292,8 @@ my_printf:  ; in this function the following registered used for
 .default:
 
 .switch_end:
+
+            inc rdi
             jmp .while
 
 .printf_end:
@@ -291,14 +311,14 @@ my_printf:  ; in this function the following registered used for
 ; adds to buffer bytes of rbx starting from the highest until zero byte is met
 ; Entry:    rbx - pointer to a string for adding to buffer
 ;           rcx - length of string
-;           rdi - pointer to buffer
 ; Exit:     None
-; Dstr:     rbx
+; Dstr:     rax, rbx, rdx, rsi
 ;========================================================================================================
 add_to_buffer:
 
             lea rsi, [rel printf_buffer]
             lea rsi, [rsi + rdx]
+
             mov rax, rcx
             add rax, rdx                                ; + длина добавлемой строки
             cmp rax, buffer_size                        ; 0FD - длина буфера
@@ -307,16 +327,30 @@ add_to_buffer:
             cmp rdx, 0
             jne .buffer_flush
 
-            ;
+            ; buffer is empty && string is too large for buffer => print string by syscall without bufferization
 
-.buffer_flush:
             push rdi
 
+            mov rdx, rcx                                ; rcx - length of string to print
+            lea rsi, [rbx]
             mov rax, 0x01                               ; write64 (rdi, rsi, rdx) ... r10, r8, r9
             mov rdi, 1                                  ; stdout
             syscall
 
-            xor rdx, rdx
+            xor rdx, rdx                                ; buffer is empty
+            pop rdi
+            jmp .EOF
+
+.buffer_flush:
+            push rdi
+
+            ; rdx - length of string to print
+            lea rsi, [rel printf_buffer]
+            mov rax, 0x01                               ; write64 (rdi, rsi, rdx) ... r10, r8, r9
+            mov rdi, 1                                  ; stdout
+            syscall
+
+            xor rdx, rdx                                ; buffer is empty
             pop rdi
 
             jmp add_to_buffer
@@ -328,7 +362,7 @@ add_to_buffer:
             inc rdx
 
             loop .add
-
+.EOF:
             ret
 
 ;========================================================================================================
