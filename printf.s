@@ -5,6 +5,7 @@ section .text
 
 global my_printf
 global my_printf_FASTCALL
+global atexit_printf_buffer_flush
 ;global buffer_flush
 extern atexit
 
@@ -100,22 +101,28 @@ itoa_hex:   itoa 4, 15
 ;========================================================================================================
 ;========================================================================================================
 my_printf_FASTCALL:
+
             push rdi
             call count_printf_specificators
             pop rdi
 
+            pop rbx                                 ; save ret adress
+
             ; rax = al for this moment
-            mov bl, 5
-            cmp al, bl
+            mov ah, 5
+            cmp al, ah
             ja .6args
 
-            sub al, bl
-            neg al                                     ; rax = 5 - rax
+            sub al, ah
+            neg al                                 ; al = 5 - al
+            xor ah, ah
 
+            push rbx
             lea rbx, [rel printf_args_jt]          ; load switch option
             mov eax, [rbx + rax * 4]
             lea rbx, [rel my_printf_FASTCALL]
             lea rax, [rbx + rax]
+            pop rbx
             jmp rax
 
 .6args:     push r9
@@ -125,6 +132,7 @@ my_printf_FASTCALL:
 .2args:     push rsi
 .1args:     push rdi
 
+            push rbx                                ; restore ret adress
             jmp my_printf
 
 ;========================================================================================================
@@ -170,19 +178,24 @@ my_printf:  ; in this function the following registered used for
             ; rdx - counter of bytes written in buffer
             ; rcx - end of format string - for end condition of while
 
-            mov rdi, atexit_printf_buffer_flush  ; Pass exit function pointer to atexit
-            call atexit
+            lea rsi, [rel printf_ret_address]
+            pop rax                         ; save ret adress
+            mov qword [rsi], rax
 
             pop rdi                         ; assuming last pushed arg is a format string
             call strlen                     ; rcx = strlen(rdi)
             add rcx, rdi                    ; rcx = end of format string
 
-            lea rsi, [rel printf_buffer]
             xor rdx, rdx
+            lea rsi, [rel printf_result]
+            mov dword [rsi], edx
+
+            lea rsi, [rel printf_buffer_charge]
+            mov dl, [rsi]                   ; load number of bytes in buffer
+
+            lea rsi, [rel printf_buffer]
+            add rsi, rdx
 .while:
-            ; maybe rax = [rdi] ???
-
-
             cmp rcx, rdi                    ; eos met => break
             je .printf_end
 
@@ -297,13 +310,19 @@ my_printf:  ; in this function the following registered used for
             jmp .while
 
 .printf_end:
+            lea rsi, [rel printf_ret_address]
+            mov rax, qword [rsi]
+            push rax                                    ; restore ret adress
 
-            lea rsi, [rel printf_result]
-            mov rax, [rsi]
-            add rax, rdx                                ; printf return value
+            lea rsi, [rel printf_buffer_charge]         ; save number of bytes in buffer for atexit or further calls
+            mov dh, [rsi]                               ; dh = buffer_charge
+            mov [rsi], dl                               ; buffer_charge = dl
+            sub dl, dh                                  ; dl = dh -dl
+            xor dh, dh
 
-            lea rsi, [rel printf_buffer_charge]
-            mov [rsi], dl                               ; save number of bytes in buffer for atexit or further calls
+            lea rsi, [rel printf_result]                ; update printf result
+            mov eax, dword [rsi]                        ; load result value
+            add eax, edx                                ; add num of bytes written in buffer, but not flushed yet
 
             ret
 
@@ -345,13 +364,32 @@ add_to_buffer:
             push rdi
 
             ; rdx - length of string to print
+            push rdx
             lea rsi, [rel printf_buffer]
             mov rax, 0x01                               ; write64 (rdi, rsi, rdx) ... r10, r8, r9
             mov rdi, 1                                  ; stdout
             syscall
+            pop rdx
+            pop rdi
+
+            push rsi
+            push rax
+
+            lea rsi, [rel printf_buffer_charge]         ; buffer could be filled after previous printf
+            mov dh, [rsi]
+            sub dl, dh
+            xor dh, dh
+            mov [rsi], dh                               ; buffer charge will be 0 after flush
+
+            lea rsi, [rel printf_result]                ; update printf result
+            mov eax, dword [rsi]
+            add eax, edx
+            mov [rsi], eax
+
+            pop rax
+            pop rsi
 
             xor rdx, rdx                                ; buffer is empty
-            pop rdi
 
             jmp add_to_buffer
 
@@ -388,7 +426,8 @@ strlen:     push rdi
 
 section     .data
 
-printf_result:  dq 0
+printf_ret_address: dq 0
+printf_result:  dd 0
 printf_buffer_charge:   db 0
 printf_buffer:  dq 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 buffer_size     equ 255
