@@ -87,7 +87,9 @@ my_printf:  ; in this function the following registered used for
             inc rsi
             inc rdx
             jmp .switch_end
-.dec_spec:
+
+.dec_spec:  pop rax
+            call process_dec_spec
             jmp .switch_end
 
 .oct_spec:  pop rax                         ; getarg for itoa
@@ -195,7 +197,7 @@ process_bin_spec:
             pop rdx
             pop rdi
 
-            lea rbx, [rel temp_buffer]
+            lea rbx, [rsi]
             call add_to_buffer
             pop rcx
 
@@ -216,7 +218,28 @@ process_oct_spec:
             pop rdx
             pop rdi
 
-            lea rbx, [rel temp_buffer]
+            lea rbx, [rsi]
+            call add_to_buffer
+            pop rcx
+
+            ret
+
+;========================================================================================================
+; adds to buffer bytes of rbx starting from the highest until zero byte is met
+; Entry:    rbx - pointer to a string for adding to buffer
+;           rcx - length of string
+; Exit:     None
+; Dstr:     rax, rbx, rdx, rsi
+;========================================================================================================
+process_dec_spec:
+            push rcx
+            push rdi
+            push rdx
+            call itoa_dec
+            pop rdx
+            pop rdi
+
+            lea rbx, [rsi]
             call add_to_buffer
             pop rcx
 
@@ -257,7 +280,7 @@ process_hex_spec:
             pop rdx
             pop rdi
 
-            lea rbx, [rel temp_buffer]
+            lea rbx, [rsi]
             call add_to_buffer
             pop rcx
 
@@ -473,43 +496,17 @@ strlen:     push rdi
 ;========================================================================================================
 ; Translates number to 2-degree based system and saves to temp_buffer in direct order
 ; Entry:    rax - dec number to translate
-; Exit:     rax - length of string containig translated number
+; Exit:     rcx - length of string containig translated number
 ; Dstr:     rax, rbx, rcx, rdx, rsi, rdi
 ;========================================================================================================
 %macro itoa 2
-            lea rsi, [rel temp_buffer]
+            lea rsi, [rel temp_buffer + buffer_size - 1]
             lea rdi, [rel digits_string]
             mov rcx, %2
-            mov rdx, rcx
-            shl rdx, 31
+            xor rdx, rdx
 
-.while:     inc dh
-            cmp rdx, rcx
-            jb  .while_end
-
-            mov rbx, rax
-            and rbx, rcx
-            test rbx, rbx
-            jz .skip
-
-            mov dl, dh
-.skip:
-            shl rcx, %1
-
-            jmp .while
-
-.while_end:
-            movzx rdx, dl
-            mov rcx, rdx
-            push rcx
-            mov rcx, %2
-            dec rdx
-            add rsi, rdx
-            lea rdx, [rel temp_buffer]
-            dec rdx
-
-.loop:      cmp rdx, rsi
-            je .loop_end
+.loop:      test rax, rax
+            jz .loop_end
 
             mov rbx, rax
             and rbx, rcx
@@ -518,10 +515,12 @@ strlen:     push rdi
             mov [rsi], byte bl
 
             dec rsi
+            inc dl
             shr rax, %1
             jmp .loop
 
-.loop_end:  pop rcx
+.loop_end:  inc rsi
+            mov rcx, rdx
 
 %endmacro
 
@@ -534,6 +533,57 @@ itoa_oct:   itoa 3, 7
 itoa_hex:   itoa 4, 15
             ret
 
+;========================================================================================================
+;
+; Entry:    rax - dec number to translate
+; Exit:
+; Dstr:     rax, rbx, rcx, rdx, rsi, rdi
+;========================================================================================================
+itoa_dec:
+            ; 0x80000000 - sign bit mask for int
+            xor rbx, rbx
+            mov rcx, 0x80000000
+            mov rdx, rax
+            and rdx, rcx
+            test rdx, rdx
+            jz .positive
+
+            inc bh                                  ; for adding minus at the end
+            not rcx                                 ; rax = - rax
+            neg rax
+            and rax, rcx
+            mov eax, eax
+
+.positive:  lea rsi, [rel temp_buffer + buffer_size - 1]
+            lea rdi, [rel digits_string]
+            mov rcx, 10
+
+.loop:      test eax, eax
+            jz .loop_end
+
+            xor rdx, rdx
+            div rcx                 ; rax = rax // 10, rdx = rax % 10
+
+            mov dl, [rdi, rdx]
+            mov [rsi], byte dl
+
+            dec rsi
+            inc bl
+            jmp .loop
+
+.loop_end:  test bh, bh
+            jz .no_minus
+
+            mov dl, '-'
+            mov [rsi], byte dl
+            dec rsi
+            inc bl
+            xor bh, bh
+
+.no_minus:  mov rcx, rbx
+            inc rsi
+
+            ret
 
 ;========================================================================================================
 ; Translates number to 2-degree based system and saves to temp_buffer in direct order

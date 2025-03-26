@@ -12,9 +12,11 @@ int main()
 {
     //itoa(-2);
 
+
     atexit(atexit_printf_buffer_flush);
 
-    printf("Printf result = %d\n-----\n", my_printf_FASTCALL("\n%x %s %x %o %%%c %b %z\n", -1, "love", 3802, 80, 33, 126));
+    printf("Printf result = %d\n-----\n", my_printf_FASTCALL("\n%d %s %x %o %%%c %b %z\n", -1, "love", 3802, 80, 33, 126));
     my_printf_FASTCALL("lkmjhbvghjbskalm\n");
+
     return 0;
 }
