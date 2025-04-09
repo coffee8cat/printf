@@ -27,3 +27,9 @@ My printf implementation uses the System V ABI calling convention for Linux:
  - Returns the result via EAX.
 
  - Cleans up its own stack arguments upon return.
+
+## Test setup
+
+- **CPU**: AMD Ryzen 5 4600H with Radeon Graphics 3.00 GHz
+- **OS**: Ubuntu 24.04.2 LTS (GNU/Linux 5.15.167.4-microsoft-standard-WSL2 x86_64)
+- **Compiler**: g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
